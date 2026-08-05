@@ -2,6 +2,7 @@
   "dependencies": {
     "@fontsource/playfair-display": "^5.2.6",
     "@fontsource/pt-sans": "^5.2.6",
+    "@simplewebauthn/server": "^13.2.2",
     "axios": "^1.10.0",
     "bcryptjs": "^3.0.2",
     "cheerio": "^1.1.2",
@@ -11,6 +12,7 @@
     "dotenv": "^16.5.0",
     "express": "^5.1.0",
     "express-rate-limit": "^7.5.1",
+    "helmet": "^8.1.0",
     "jsonwebtoken": "^9.0.2",
     "mongoose": "^8.16.0",
     "multer": "^2.0.2",

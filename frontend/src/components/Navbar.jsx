@@ -1,15 +1,42 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { FaCoins, FaBars, FaTimes, FaUser, FaSignOutAlt } from 'react-icons/fa'
+import { FaCoins, FaBars, FaTimes, FaUser, FaSignOutAlt, FaShoppingCart } from 'react-icons/fa'
 import { useAuth } from '../context/AuthContext'
 import { useToast } from '../context/ToastContext'
+import api from '../lib/axios'
 
 const Navbar = () => {
   const [isOpen, setIsOpen] = useState(false)
   const { user, logout } = useAuth()
   const navigate = useNavigate()
   const { showSuccess } = useToast()
+  const [cart, setCart] = useState(null)
+
+  useEffect(() => {
+    if (user && user.role !== 'admin') {
+      fetchCart()
+      // Poll cart every 30 seconds
+      const interval = setInterval(fetchCart, 30000)
+      return () => clearInterval(interval)
+    }
+  }, [user])
+
+  const fetchCart = async () => {
+    try {
+      const response = await api.get('/api/cart/me')
+      if (response.data.cart) {
+        setCart(response.data.cart)
+      } else {
+        setCart(null)
+      }
+    } catch (error) {
+      if (error.response?.status !== 404) {
+        console.error('Error fetching cart:', error)
+      }
+      setCart(null)
+    }
+  }
 
   const handleLogout = () => {
     logout()
@@ -67,6 +94,17 @@ const Navbar = () => {
                     <Link to="/profile" className="text-gray-700 hover:text-gold-primary transition-colors">
                       Profile
                     </Link>
+                    <Link 
+                      to="/cart" 
+                      className="relative text-gray-700 hover:text-gold-primary transition-colors flex items-center"
+                    >
+                      <FaShoppingCart className="text-xl" />
+                      {cart && (
+                        <span className="absolute -top-2 -right-2 bg-red-500 text-white text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center">
+                          1
+                        </span>
+                      )}
+                    </Link>
                     <div className="flex items-center space-x-4">
                       <span className="text-gray-700">Welcome, {user.name}</span>
                       <button
@@ -97,6 +135,7 @@ const Navbar = () => {
             <button
               onClick={() => setIsOpen(!isOpen)}
               className="text-gray-700 hover:text-gold-primary"
+              aria-label={isOpen ? 'Close menu' : 'Open menu'}
             >
               {isOpen ? <FaTimes size={24} /> : <FaBars size={24} />}
             </button>
@@ -166,6 +205,21 @@ const Navbar = () => {
                       onClick={() => setIsOpen(false)}
                     >
                       Profile
+                    </Link>
+                    <Link
+                      to="/cart"
+                      className="block px-3 py-2 text-gray-700 hover:text-gold-primary relative"
+                      onClick={() => setIsOpen(false)}
+                    >
+                      <span className="flex items-center space-x-2">
+                        <FaShoppingCart />
+                        <span>Cart</span>
+                        {cart && (
+                          <span className="bg-red-500 text-white text-xs font-bold rounded-full w-5 h-5 flex items-center justify-center">
+                            1
+                          </span>
+                        )}
+                      </span>
                     </Link>
                     <div className="px-3 py-2">
                       <span className="text-gray-700">Welcome, {user.name}</span>

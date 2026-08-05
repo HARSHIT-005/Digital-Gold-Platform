@@ -1,25 +1,35 @@
-import fetch from 'node-fetch';
+// 🪙 Utility: Fetch live gold price in INR (minor formatting change only)
+import fetch from "node-fetch";
 
-// Fetch quote from MCX GetQuote endpoint
-export const fetchMcxQuote = async ({ commodity = 'GOLD', expiry = '05DEC2025' } = {}) => {
-  const url = 'https://www.mcxindia.com/BackPage.aspx/GetQuote';
+export const fetchGoldPriceInINR = async () => {
+  const url = "https://www.goldapi.io/api/XAU/INR";
+  const apiKey = process.env.GOLDAPI_KEY;
 
-  const headers = {
-    'Content-Type': 'application/json; charset=UTF-8',
-    'Accept': '*/*',
-    'X-Requested-With': 'XMLHttpRequest'
-  };
+  try {
+    const response = await fetch(url, {
+      method: "GET",
+      headers: {
+        "x-access-token": apiKey,
+        "Content-Type": "application/json",
+      },
+    });
 
-  const body = JSON.stringify({ Commodity: commodity, Expiry: expiry });
+    if (!response.ok) {
+      throw new Error(`GoldAPI error: ${response.status} ${response.statusText}`);
+    }
 
-  const response = await fetch(url, {
-    method: 'POST',
-    headers,
-    body
-  });
+    const data = await response.json();
 
-  if (!response.ok) {
-    throw new Error(`MCX API error: ${response.status} ${response.statusText}`);
+    // ✅ goldapi.io returns `price_gram_24k` for price per gram in INR
+    if (!data.price_gram_24k) {
+      throw new Error("No price_gram_24k in response");
+    }
+
+    // 🧮 Convert to float and return
+    return parseFloat(data.price_gram_24k);
+  } catch (err) {
+    console.error("Failed to fetch gold price from GoldAPI:", err.message);
+    throw new Error("Failed to fetch gold price from GoldAPI");
   }
 
   const json = await response.json();

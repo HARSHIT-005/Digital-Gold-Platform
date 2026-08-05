@@ -78,11 +78,23 @@ export const login = async (req, res, next) => {
     const user = await User.findOne({ email });
     if (!user || user.isDeleted) return res.status(401).json({ message: 'Invalid credentials' });
 
+    // Validate password
+    if (!password) {
+      return res.status(400).json({ message: 'Password is required' });
+    }
+
+    if (!user.passwordHash) {
+      return res.status(401).json({ message: 'Password not set for this account' });
+    }
+
     const match = await bcrypt.compare(password, user.passwordHash);
     if (!match) return res.status(401).json({ message: 'Invalid credentials' });
 
     const token = createAccessToken(user);
     const refreshToken = createRefreshToken(user);
+
+    user.lastLogin = new Date();
+    await user.save();
 
     res.cookie('refreshToken', refreshToken, {
       httpOnly: true,

@@ -1,9 +1,10 @@
-import { useState } from 'react'
+import { useState, useEffect } from 'react'
 import { Link, useNavigate } from 'react-router-dom'
 import { motion } from 'framer-motion'
-import { FaCoins, FaEye, FaEyeSlash } from 'react-icons/fa'
+import { FaCoins, FaEye, FaEyeSlash, FaFingerprint } from 'react-icons/fa'
 import { useAuth } from '../context/AuthContext'
 import { useToast } from '../context/ToastContext'
+import { checkWebAuthnStatus, authenticateWebAuthn, isWebAuthnSupported } from '../utils/webauthn'
 
 const Login = () => {
   const [formData, setFormData] = useState({
@@ -13,6 +14,9 @@ const Login = () => {
   const [showPassword, setShowPassword] = useState(false)
   const [error, setError] = useState('')
   const [loading, setLoading] = useState(false)
+  const [webauthnEnabled, setWebauthnEnabled] = useState(false)
+  const [webauthnLoading, setWebauthnLoading] = useState(false)
+  const [checkingWebAuthn, setCheckingWebAuthn] = useState(false)
   const { login } = useAuth()
   const { showSuccess, showError } = useToast()
   const navigate = useNavigate()
@@ -22,7 +26,30 @@ const Login = () => {
       ...formData,
       [e.target.name]: e.target.value
     })
+    setError('')
   }
+
+  // Check WebAuthn status when email changes
+  useEffect(() => {
+    const checkStatus = async () => {
+      if (formData.email && formData.email.includes('@')) {
+        setCheckingWebAuthn(true)
+        try {
+          const status = await checkWebAuthnStatus(formData.email)
+          setWebauthnEnabled(status.webauthnEnabled || false)
+        } catch (error) {
+          setWebauthnEnabled(false)
+        } finally {
+          setCheckingWebAuthn(false)
+        }
+      } else {
+        setWebauthnEnabled(false)
+      }
+    }
+
+    const timeoutId = setTimeout(checkStatus, 500) // Debounce
+    return () => clearTimeout(timeoutId)
+  }, [formData.email])
 
   const handleSubmit = async (e) => {
     e.preventDefault()
@@ -40,11 +67,65 @@ const Login = () => {
         navigate('/dashboard')
       }
     } else {
-      setError(result.error)
-      showError(result.error)
+      // Check if WebAuthn is required
+      if (result.error?.includes('WebAuthn') || result.requiresWebAuthn) {
+        setError('WebAuthn authentication required. Please use fingerprint authentication.')
+        setWebauthnEnabled(true)
+      } else {
+        setError(result.error)
+        showError(result.error)
+      }
     }
     
     setLoading(false)
+  }
+
+  const handleWebAuthnLogin = async () => {
+    if (!formData.email) {
+      setError('Please enter your email first')
+      return
+    }
+
+    if (!isWebAuthnSupported()) {
+      setError('WebAuthn is not supported in your browser. Please use password login.')
+      showError('WebAuthn is not supported in your browser')
+      return
+    }
+
+    setError('')
+    setWebauthnLoading(true)
+
+    try {
+      const result = await authenticateWebAuthn(formData.email)
+      
+      if (result.success) {
+        // Store token and user
+        localStorage.setItem('token', result.token)
+        showSuccess('WebAuthn authentication successful! Welcome back.')
+        
+        // Redirect based on user role
+        if (result.user?.role === 'admin') {
+          navigate('/admin')
+        } else {
+          navigate('/dashboard')
+        }
+        
+        // Reload to update auth context
+        window.location.reload()
+      } else {
+        if (result.requiresPassword) {
+          setError('WebAuthn not registered. Please use password login.')
+        } else {
+          setError(result.error || 'WebAuthn authentication failed')
+          showError(result.error || 'WebAuthn authentication failed')
+        }
+      }
+    } catch (error) {
+      setError('WebAuthn authentication failed. Please try again.')
+      showError('WebAuthn authentication failed')
+    } finally {
+      setWebauthnLoading(false)
+    }
   }
 
   return (
@@ -94,7 +175,7 @@ const Login = () => {
 
             <div>
               <label htmlFor="password" className="block text-sm font-medium text-gray-700 mb-2">
-                Password
+                Password {webauthnEnabled && formData.email && <span className="text-xs text-gray-500">(Optional if using fingerprint)</span>}
               </label>
               <div className="relative">
                 <input
@@ -118,13 +199,31 @@ const Login = () => {
               </div>
             </div>
 
+            {/* WebAuthn Button - Show if enabled and email is entered */}
+            {webauthnEnabled && formData.email && (
+              <div>
+                <button
+                  type="button"
+                  onClick={handleWebAuthnLogin}
+                  disabled={webauthnLoading || loading}
+                  className="w-full bg-gradient-to-r from-purple-600 to-indigo-600 text-white py-3 px-4 rounded-lg font-semibold disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center space-x-2 hover:from-purple-700 hover:to-indigo-700 transition-all"
+                >
+                  <FaFingerprint />
+                  <span>{webauthnLoading ? 'Authenticating...' : 'Login with Fingerprint'}</span>
+                </button>
+                <div className="text-center text-sm text-gray-500 mt-2">
+                  or
+                </div>
+              </div>
+            )}
+
             <div>
               <button
                 type="submit"
-                disabled={loading}
+                disabled={loading || webauthnLoading || (webauthnEnabled && !formData.password)}
                 className="w-full gold-button text-white py-3 px-4 rounded-lg font-semibold disabled:opacity-50 disabled:cursor-not-allowed"
               >
-                {loading ? 'Signing In...' : 'Sign In'}
+                {loading ? 'Signing In...' : 'Sign In with Password'}
               </button>
             </div>
 

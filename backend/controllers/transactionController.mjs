@@ -1,101 +1,79 @@
-import mongoose from 'mongoose';
-import User from '../models/User.mjs';
-import GoldInventory from '../models/GoldInventory.mjs';
-import Transaction from '../models/Transaction.mjs';
-import CustomerHolding from '../models/CustomerHolding.mjs';
-import { notifyUser } from '../utils/notifyUser.mjs';
-import { logAudit } from '../utils/logAudit.mjs';
-import { fetchDetailedGoldPrice } from '../utils/fetchGoldPrice.mjs';
+// 💰 Gold Transaction Controller
+import mongoose from "mongoose";
+import User from "../models/User.mjs";
+import GoldInventory from "../models/GoldInventory.mjs";
+import Transaction from "../models/Transaction.mjs";
+import CustomerHolding from "../models/CustomerHolding.mjs";
+import OrderCart from "../models/OrderCart.mjs";
+import { notifyUser } from "../utils/notifyUser.mjs";
+import { logAudit } from "../utils/logAudit.mjs";
+import { getCurrentPriceFromDB } from "../controllers/goldPriceController.mjs";
 
 export const buyGold = async (req, res, next) => {
-  const session = await mongoose.startSession();
-  session.startTransaction();
-
   try {
     const customerId = req.user.id;
     const { grams } = req.body;
 
-    // ✅ Validate grams
+    // ✅ Validate input grams
     if (!grams || grams <= 0) {
-      throw new Error('Invalid gold quantity');
+      return res.status(400).json({
+        success: false,
+        message: "Invalid gold quantity",
+      });
     }
 
-    // ✅ Check KYC
-    const user = await User.findById(customerId).session(session);
+    // ✅ Ensure user has verified KYC
+    const user = await User.findById(customerId);
     if (!user || !user.kyc?.verified) {
-      throw new Error('KYC not verified. Cannot proceed with purchase.');
+      return res.status(403).json({
+        success: false,
+        message: "KYC not verified. Cannot proceed with purchase.",
+      });
     }
 
-    // ✅ Get live gold price (from MCX)
-    const detailedPrice = await fetchDetailedGoldPrice();
-    const pricePerGram = detailedPrice.price;
+    // ✅ Fetch current gold price (per gram) from database
+    const pricePerGram = await getCurrentPriceFromDB();
     const totalAmount = parseFloat((pricePerGram * grams).toFixed(2));
 
-    // ✅ Check inventory
-    const inventory = await GoldInventory.findOne({ isDeleted: false }).session(session);
+    // ✅ Check gold inventory availability
+    const inventory = await GoldInventory.findOne({ isDeleted: false });
     if (!inventory || inventory.availableGrams < grams) {
-      throw new Error('Insufficient gold inventory');
+      return res.status(400).json({
+        success: false,
+        message: "Insufficient gold inventory",
+      });
     }
 
-    // ✅ Create transaction
-    const [transaction] = await Transaction.create([{
+    // ✅ Cancel any existing pending carts for this user
+    await OrderCart.updateMany(
+      { customerId, status: 'pending', isDeleted: false },
+      { status: 'cancelled', isDeleted: true }
+    );
+
+    // ✅ Create order cart when verified user tries to buy gold
+    const cart = await OrderCart.create({
       customerId,
-      type: 'buy',
       grams,
       pricePerGram,
       totalAmount,
-      transactionTime: new Date()
-    }], { session });
+      status: 'pending',
+    });
 
-    // ✅ Update or create holding
-    let holding = await CustomerHolding.findOne({
-      customerId,
-      isDeleted: false
-    }).session(session);
-
-    if (holding) {
-      const totalGrams = holding.grams + grams;
-      const weightedAvg = ((holding.grams * holding.averagePricePerGram) + totalAmount) / totalGrams;
-
-      holding.grams = parseFloat(totalGrams.toFixed(4));
-      holding.averagePricePerGram = parseFloat(weightedAvg.toFixed(2));
-
-      await holding.save({ session });
-    } else {
-      await CustomerHolding.create([{
-        customerId,
-        grams: parseFloat(grams.toFixed(4)),
-        averagePricePerGram: pricePerGram,
-        isDeleted: false
-      }], { session });
-    }
-
-    // ✅ Update inventory
-    inventory.availableGrams -= grams;
-    await inventory.save({ session });
-
-    // ✅ Notify user and audit log
-    await notifyUser(customerId, `You purchased ${grams} grams of gold for ₹${totalAmount}.`);
     await logAudit({
-      action: 'buy_gold',
+      action: "buy_gold_cart_created",
       performedBy: customerId,
-      targetModel: 'Transaction',
-      targetId: transaction._id,
-      changes: { grams, totalAmount }
+      targetModel: "OrderCart",
+      targetId: cart._id,
+      changes: { grams, totalAmount, pricePerGram },
     });
 
-    await session.commitTransaction();
-    session.endSession();
-
-    res.status(201).json({
+    return res.status(201).json({
       success: true,
-      message: 'Gold purchase successful',
-      transaction
+      message: "Order cart created successfully. Please proceed to checkout.",
+      cart,
     });
-
   } catch (err) {
-    await session.abortTransaction();
-    session.endSession();
+    console.error("Buy gold (create cart) error:", err);
     next(err);
   }
 };
@@ -109,51 +87,58 @@ export const sellGold = async (req, res, next) => {
     const { grams } = req.body;
 
     // ✅ Validate grams
-    if (!grams || grams <= 0) {
-      throw new Error('Invalid gold quantity');
-    }
+    if (!grams || grams <= 0) throw new Error("Invalid gold quantity");
 
-    // ✅ Check KYC
+    // ✅ Verify KYC before selling
     const user = await User.findById(customerId).session(session);
     if (!user || !user.kyc?.verified) {
-      throw new Error('KYC not verified. Cannot proceed with sale.');
+      throw new Error("KYC not verified. Cannot proceed with sale.");
     }
 
-    // ✅ Check holding
+    // ✅ Check user’s current holdings
     let holding = await CustomerHolding.findOne({
       customerId,
-      isDeleted: false
+      isDeleted: false,
     }).session(session);
 
     if (!holding || holding.totalGrams < grams) {
-      throw new Error('Insufficient gold balance to sell');
+      throw new Error("Insufficient gold balance to sell");
     }
 
-    // ✅ Get live gold price (from MCX)
-    const detailedPrice = await fetchDetailedGoldPrice();
-    const pricePerGram = detailedPrice.price;
+    // ✅ Fetch current gold price from database
+    const pricePerGram = await getCurrentPriceFromDB();
     const totalAmount = parseFloat((pricePerGram * grams).toFixed(2));
 
-    // ✅ Create transaction
-    const [transaction] = await Transaction.create([
-      {
-        customerId,
-        type: 'sell',
-        grams,
-        pricePerGram,
-        totalAmount,
-        status: 'success',
-        createdAt: new Date()
-      }
-    ], { session });
+    // ✅ Record the sell transaction
+    const [transaction] = await Transaction.create(
+      [
+        {
+          customerId,
+          type: "sell",
+          grams,
+          pricePerGram,
+          totalAmount,
+          status: "success",
+          createdAt: new Date(),
+        },
+      ],
+      { session }
+    );
 
-    // ✅ Update holding
+    // ✅ Update holdings after sale
     holding.totalGrams = parseFloat((holding.totalGrams - grams).toFixed(4));
-    // Optionally update totalInvested and averagePricePerGram if needed
     holding.lastTransactionAt = new Date();
+    if (holding.totalGrams <= 0) {
+      holding.totalGrams = 0;
+      holding.totalInvested = 0;
+    } else {
+      holding.totalInvested = parseFloat(
+        (holding.totalGrams * holding.averagePricePerGram).toFixed(2)
+      );
+    }
     await holding.save({ session });
 
-    // ✅ Update inventory
+    // ✅ Add sold gold back to inventory
     let inventory = await GoldInventory.findOne({ isDeleted: false }).session(session);
     if (!inventory) {
       inventory = await GoldInventory.create([{ availableGrams: grams }], { session });
@@ -162,14 +147,14 @@ export const sellGold = async (req, res, next) => {
       await inventory.save({ session });
     }
 
-    // ✅ Notify user and audit log
+    // ✅ Notify & audit
     await notifyUser(customerId, `You sold ${grams} grams of gold for ₹${totalAmount}.`);
     await logAudit({
-      action: 'sell_gold',
+      action: "sell_gold",
       performedBy: customerId,
-      targetModel: 'Transaction',
+      targetModel: "Transaction",
       targetId: transaction._id,
-      changes: { grams, totalAmount }
+      changes: { grams, totalAmount },
     });
 
     await session.commitTransaction();
@@ -177,8 +162,8 @@ export const sellGold = async (req, res, next) => {
 
     res.status(201).json({
       success: true,
-      message: 'Gold sale successful',
-      transaction
+      message: "Gold sale successful",
+      transaction,
     });
   } catch (err) {
     await session.abortTransaction();
@@ -191,8 +176,10 @@ export const getMyTransactions = async (req, res, next) => {
   try {
     const customerId = req.user.id;
 
-    const transactions = await Transaction.find({ customerId })
-      .sort({ transactionTime: -1 });
+    // 🧾 Fetch user’s transaction history
+    const transactions = await Transaction.find({ customerId }).sort({
+      transactionTime: -1,
+    });
 
     res.status(200).json({ success: true, transactions });
   } catch (err) {

@@ -2,7 +2,7 @@ import axios from 'axios'
 
 // Create axios instance with base configuration
 const api = axios.create({
-  baseURL: import.meta.env.VITE_API_URL || '/api',
+  baseURL: import.meta.env.VITE_API_URL || '',
   timeout: 10000,
   headers: {
     'Content-Type': 'application/json'
@@ -29,7 +29,9 @@ api.interceptors.response.use(
     return response
   },
   (error) => {
-    console.error('API Error:', error)
+    const status = error.response?.status
+    const message = error.response?.data?.message || error.message
+    console.error('API Error:', { status, message })
     if (error.response?.status === 401) {
       localStorage.removeItem('token')
       window.location.href = '/login'

@@ -2,6 +2,7 @@ import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
 import { FaHistory, FaFilter, FaDownload, FaSearch } from 'react-icons/fa'
 import { formatINR } from '../utils/currency.jsx'
+import LoadingSpinner from '../components/LoadingSpinner'
 import api from '../lib/axios'
 
 const Transactions = () => {
@@ -69,7 +70,7 @@ const Transactions = () => {
   if (loading) {
     return (
       <div className="min-h-screen flex items-center justify-center">
-        <div className="text-gold-primary text-xl">Loading...</div>
+        <LoadingSpinner size="lg" color="gold-primary" />
       </div>
     )
   }

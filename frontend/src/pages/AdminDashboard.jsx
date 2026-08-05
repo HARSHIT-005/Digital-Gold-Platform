@@ -1,9 +1,9 @@
 import { useState, useEffect } from 'react'
 import { motion } from 'framer-motion'
-import { FaUsers, FaCoins, FaChartLine, FaShieldAlt, FaArrowUp, FaArrowDown, FaWarehouse } from 'react-icons/fa'
+import { FaUsers, FaCoins, FaChartLine, FaShieldAlt, FaArrowUp, FaArrowDown, FaWarehouse, FaFingerprint } from 'react-icons/fa'
 import { useAuth } from '../context/AuthContext'
 import api from '../lib/axios'
-import { useNavigate } from 'react-router-dom'
+import { useNavigate, Link } from 'react-router-dom'
 
 
 const PasscodeModal = ({ open, onClose, onSuccess }) => {
@@ -243,7 +243,7 @@ const AdminDashboard = () => {
               onClick={() => navigateWithPasscode('/admin/price')}
             >
               <FaCoins className="text-2xl mx-auto mb-2" />
-              <span className="font-semibold">Update Prices</span>
+              <span className="font-semibold">Set Prices</span>
             </button>
             <button
               className="gold-button text-white p-4 rounded-lg text-center hover:transform hover:scale-105 transition-transform"
@@ -252,6 +252,13 @@ const AdminDashboard = () => {
               <FaWarehouse className="text-2xl mx-auto mb-2" />
               <span className="font-semibold">Manage Inventory</span>
             </button>
+            <Link
+              to="/admin/webauthn/register"
+              className="bg-gradient-to-r from-purple-600 to-indigo-600 text-white p-4 rounded-lg text-center hover:transform hover:scale-105 transition-transform flex flex-col items-center justify-center"
+            >
+              <FaFingerprint className="text-2xl mx-auto mb-2" />
+              <span className="font-semibold">Setup Fingerprint</span>
+            </Link>
           </div>
           <PasscodeModal
             open={passcodeOpen}
