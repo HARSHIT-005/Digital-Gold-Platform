@@ -42,7 +42,7 @@ app.use('/api/gold', goldRoutes);
 
 // Health check route
 app.get('/', (req, res) => {
-  res.send('<h1>💰 Digital Gold Platform API is running</h1>');
+  res.send('<h1> Digital Gold Platform API is running</h1>');
 });
 
 // 404 fallback
